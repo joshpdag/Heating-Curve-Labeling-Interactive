@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Heating &amp; Freezing Curves</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: toggle + one large shared-axis chart with on-curve drop widgets; sticky label bank beside it. */
+:root{
+  --bg:#E8ECF2; --panel:#ffffff; --panel2:#F1F4F8; --ink:#14202E; --muted:#56667C; --line:#C9D4E2;
+  --accent:#0E7C91; --accent-weak:#D8EDF1;
+  --solid:#4A62D8; --liquid:#0E9683; --gas:#D55A28;
+  --solid-bg:#E9ECFD; --liquid-bg:#DFF4EF; --gas-bg:#FBE8DF;
+  --change:#7A4CC4; --change-bg:#F0E8FA;
+  --energy:#9A6A12; --energy-bg:#F7EDD8;
+  --water:#2563EB; --alcohol:#7C3AED; --oil:#C2620A;
+  --good:#117A3B; --good-bg:#DCFCE7; --bad:#B4241C; --bad-bg:#FCE4E2;
+  --shadow:0 2px 10px rgba(30,41,59,.10); --radius:12px;
+  --font:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0F1622; --panel:#17222F; --panel2:#1E2A39; --ink:#E7ECF5; --muted:#93A4BC; --line:#33455C;
+  --accent:#46CFE0; --accent-weak:#143038;
+  --solid:#8FA6FF; --liquid:#27C9A7; --gas:#FF8E5E;
+  --solid-bg:#273150; --liquid-bg:#153A33; --gas-bg:#3A2417;
+  --change:#B79BF0; --change-bg:#2A2140; --energy:#E6B657; --energy-bg:#352B14;
+  --water:#60A5FA; --alcohol:#A78BFA; --oil:#FBBF24;
+  --good:#4ADE80; --good-bg:#15321E; --bad:#F77; --bad-bg:#3A1A1A;
+  --shadow:0 2px 12px rgba(0,0,0,.35); color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0F1622; --panel:#17222F; --panel2:#1E2A39; --ink:#E7ECF5; --muted:#93A4BC; --line:#33455C;
+  --accent:#46CFE0; --accent-weak:#143038;
+  --solid:#8FA6FF; --liquid:#27C9A7; --gas:#FF8E5E;
+  --solid-bg:#273150; --liquid-bg:#153A33; --gas-bg:#3A2417;
+  --change:#B79BF0; --change-bg:#2A2140; --energy:#E6B657; --energy-bg:#352B14;
+  --water:#60A5FA; --alcohol:#A78BFA; --oil:#FBBF24;
+  --good:#4ADE80; --good-bg:#15321E; --bad:#F77; --bad-bg:#3A1A1A;
+  --shadow:0 2px 12px rgba(0,0,0,.35); color-scheme:dark;
+}
+*{box-sizing:border-box} html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2{text-wrap:balance;margin:0}
+.eyebrow{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:60;background:var(--panel);border-bottom:1px solid var(--line);box-shadow:var(--shadow)}
+.topbar-in{max-width:1240px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.brand{display:flex;flex-direction:column;gap:1px;margin-right:auto;min-width:0}
+.brand h1{font-size:17px;font-weight:700;letter-spacing:-.01em}
+.brand .q{font-size:12.5px;color:var(--muted)}
+.namefield{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.namefield input{font:inherit;font-size:13px;color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 9px;width:140px}
+.btn{font:inherit;font-weight:600;font-size:13.5px;border-radius:9px;padding:8px 14px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.ghost{background:transparent}
+.score{font-family:var(--mono);font-weight:600;font-size:13px;padding:7px 12px;border-radius:9px;background:var(--accent-weak);color:var(--accent);white-space:nowrap}
+.themebtn{font:inherit;font-size:16px;background:transparent;border:1px solid var(--line);border-radius:8px;width:34px;height:34px;cursor:pointer;color:var(--ink)}
+
+.wrap{max-width:1240px;margin:0 auto;padding:16px;padding-block:18px}
+.toggle{display:inline-flex;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:3px;margin-bottom:14px}
+.toggle button{font:inherit;font-weight:600;font-size:14px;border:none;background:transparent;color:var(--muted);padding:8px 18px;border-radius:8px;cursor:pointer}
+.toggle button.active{background:var(--accent);color:#fff}
+
+.intro{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px 16px;margin-bottom:14px;box-shadow:var(--shadow);font-size:14px}
+.intro b{color:var(--ink)}
+
+.chartpanel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:18px;box-shadow:var(--shadow)}
+.chartpanel h2{font-size:16px;font-weight:700;margin-bottom:4px}
+.curvelegend{display:flex;gap:20px;flex-wrap:wrap;margin:6px 0 10px;font-size:14px;font-weight:600}
+.curvelegend span{display:inline-flex;align-items:center;gap:8px}
+.curvelegend .sw{width:26px;height:4px;border-radius:2px;flex:none}
+.chartscroll{overflow-x:auto}
+.stage{position:relative;width:100%;min-width:720px}
+svg.curve{display:block;width:100%;height:auto}
+.overlay{position:absolute;inset:0;pointer-events:none}
+
+/* on-curve drop circles + tiny attached chips */
+.droppad{position:absolute;width:40px;height:40px;transform:translate(-50%,-50%);border-radius:50%;pointer-events:auto;cursor:pointer}
+.droppad.over{background:rgba(70,207,224,.22);box-shadow:0 0 0 2px var(--accent)}
+.dock{position:absolute;pointer-events:auto;display:flex;flex-direction:column;gap:2px;width:104px}
+.dock.up{transform:translate(-50%,-100%)}
+.dock.down{transform:translate(-50%,0)}
+.minichip{font-size:9.5px;font-weight:600;line-height:1.2;border-radius:5px;padding:1px 4px;border:1px solid;text-align:center;cursor:pointer;background:var(--panel);white-space:normal;box-shadow:var(--shadow)}
+.minichip.mc-solid{color:var(--solid);border-color:var(--solid)}
+.minichip.mc-liquid{color:var(--liquid);border-color:var(--liquid)}
+.minichip.mc-gas{color:var(--gas);border-color:var(--gas)}
+.minichip.mc-change{color:var(--change);border-color:var(--change)}
+.minichip.mc-energy{color:var(--energy);border-color:var(--energy)}
+.minichip.ok{border-color:var(--good);background:var(--good-bg);color:var(--good)}
+.minichip.bad{border-color:var(--bad);background:var(--bad-bg);color:var(--bad)}
+
+.chip{font-size:12.5px;font-weight:600;line-height:1.25;border-radius:8px;padding:5px 9px;border:1px solid;cursor:grab;user-select:none;text-align:center;display:inline-block}
+.chip:active{cursor:grabbing}
+.c-solid{color:var(--solid);background:var(--solid-bg);border-color:var(--solid)}
+.c-liquid{color:var(--liquid);background:var(--liquid-bg);border-color:var(--liquid)}
+.c-gas{color:var(--gas);background:var(--gas-bg);border-color:var(--gas)}
+.c-change{color:var(--change);background:var(--change-bg);border-color:var(--change)}
+.c-energy{color:var(--energy);background:var(--energy-bg);border-color:var(--energy)}
+.slot .chip.c-solid,.slot .chip.c-liquid,.slot .chip.c-gas,.slot .chip.c-change,.slot .chip.c-energy{border:none;background:transparent}
+.slot .chip.c-solid{color:var(--solid)} .slot .chip.c-liquid{color:var(--liquid)} .slot .chip.c-gas{color:var(--gas)}
+.slot .chip.c-change{color:var(--change)} .slot .chip.c-energy{color:var(--energy)}
+
+.cols{display:grid;grid-template-columns:1fr 280px;gap:18px;align-items:start}
+@media (max-width:900px){ .cols{grid-template-columns:1fr} }
+.bank{position:sticky;top:calc(env(safe-area-inset-top,0px) + 70px);background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow)}
+.bank h3{font-size:12px;font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:14px 0 8px}
+.bank h3:first-of-type{margin-top:0}
+.bank .hint{font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.45}
+.bankgroup{display:flex;flex-wrap:wrap;gap:7px}
+.bankgroup.col{flex-direction:column;align-items:stretch}
+.footer{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px}
+.toast{font-size:13px;color:var(--good);font-weight:600}
+:focus-visible{outline:2.5px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-in">
+    <div class="brand">
+      <h1>Heating &amp; Freezing Curves</h1>
+      <span class="q">Lesson 2.2 &middot; How does the energy to change state compare for water, alcohol, and oil?</span>
+    </div>
+    <button class="btn ghost" id="resetBtn">Reset</button>
+    <button class="btn primary" id="checkBtn">Check Answers</button>
+    <span class="score" id="scorePill" hidden></span>
+    <button class="themebtn" id="themeBtn" title="Toggle light / dark" aria-label="Toggle light or dark theme">&#9681;</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="toggle" role="tablist">
+    <button id="tabHeat" class="active" role="tab" aria-selected="true">Heating graph</button>
+    <button id="tabCool" role="tab" aria-selected="false">Freezing graph</button>
+  </div>
+
+  <div class="intro" id="intro"></div>
+
+  <div class="cols">
+    <main>
+      <div class="chartpanel">
+        <h2 id="chartTitle"></h2>
+        <div class="curvelegend" id="curvelegend"></div>
+        <div class="chartscroll">
+          <div class="stage" id="stage">
+            <div id="svgwrap"></div>
+            <div class="overlay" id="overlay"></div>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:13px;color:var(--muted);line-height:1.5;margin-top:4px">Drag a label from the bank onto a <b>numbered circle</b> on the graph. Each circle needs two labels: <b>what is happening</b> (a state or a state change) and <b>what the thermal energy is doing</b>. The dropped labels appear beside the circle. Click a label to remove it. Labels can be used more than once.</div>
+    </main>
+    <aside>
+      <div class="bank">
+        <p class="hint">Drag a label onto a box.</p>
+        <h3>States</h3>
+        <div class="bankgroup" id="bank-states"></div>
+        <h3>State Changes</h3>
+        <div class="bankgroup" id="bank-changes"></div>
+        <h3>Thermal Energy</h3>
+        <div class="bankgroup col" id="bank-energy"></div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+var SLOPE={solid:1.0,liquid:1.3,gas:0.7}, PLAT={least:1.0,medium:1.9,most:3.0};
+var MAXE=7.0, MINT=-130, MAXT=360;
+var SUBS=[
+  {key:"water",name:"Water",cvar:"--water",startT:-30,melt:{t:0,e:"medium"},boil:{t:100,e:"medium"},gasEnd:140},
+  {key:"alcohol",name:"Rubbing Alcohol",cvar:"--alcohol",startT:-120,melt:{t:-90,e:"most"},boil:{t:80,e:"least"},gasEnd:120},
+  {key:"oil",name:"Vegetable Oil",cvar:"--oil",startT:-50,melt:{t:-20,e:"least"},boil:{t:300,e:"most"},gasEnd:340}
+];
+var FULL={raise:"Thermal energy added raises the temperature",lower:"Thermal energy removed lowers the temperature",
+  most:"Most thermal energy needed to change state",medium:"Medium thermal energy needed to change state",least:"Least thermal energy needed to change state"};
+var SHORT={solid:"Solid",liquid:"Liquid",gas:"Gas",melting:"Melting",boiling:"Boiling",evaporating:"Evaporating",freezing:"Freezing",condensing:"Condensing",
+  raise:"TE raises temp",lower:"TE lowers temp",most:"Most TE for State Change",medium:"Medium TE for State Change",least:"Least TE for State Change"};
+function fullText(v){ return (v in FULL)?FULL[v]:(v.charAt(0).toUpperCase()+v.slice(1)); }
+function cat(v){ if(v==="solid"||v==="liquid"||v==="gas") return "c-"+v; if(v in FULL) return "c-energy"; return "c-change"; }
+function mcat(v){ if(v==="solid"||v==="liquid"||v==="gas") return "mc-"+v; if(v in FULL) return "mc-energy"; return "mc-change"; }
+
+var VBW=980, VBH=600, X0=72, Y0=28, PW=864, PH=486;
+function tx(e){ return X0+e/MAXE*PW; }
+function ty(T){ return Y0+(MAXT-T)/(MAXT-MINT)*PH; }
+var DIR={water:-1,oil:1,alcohol:1};
+
+function segsFor(mode,s){
+  var list;
+  if(mode==="heat"){
+    list=[
+      {kind:"slope",what:["solid"],en:["raise"],e:SLOPE.solid,fromT:s.startT,toT:s.melt.t},
+      {kind:"plat",what:["melting"],en:[s.melt.e],e:PLAT[s.melt.e],atT:s.melt.t},
+      {kind:"slope",what:["liquid"],en:["raise"],e:SLOPE.liquid,fromT:s.melt.t,toT:s.boil.t},
+      {kind:"plat",what:["boiling","evaporating"],en:[s.boil.e],e:PLAT[s.boil.e],atT:s.boil.t},
+      {kind:"slope",what:["gas"],en:["raise"],e:SLOPE.gas,fromT:s.boil.t,toT:s.gasEnd}
+    ];
+  } else {
+    list=[
+      {kind:"slope",what:["gas"],en:["lower"],e:SLOPE.gas,fromT:s.gasEnd,toT:s.boil.t},
+      {kind:"plat",what:["condensing"],en:[s.boil.e],e:PLAT[s.boil.e],atT:s.boil.t},
+      {kind:"slope",what:["liquid"],en:["lower"],e:SLOPE.liquid,fromT:s.boil.t,toT:s.melt.t},
+      {kind:"plat",what:["freezing"],en:[s.melt.e],e:PLAT[s.melt.e],atT:s.melt.t},
+      {kind:"slope",what:["solid"],en:["lower"],e:SLOPE.solid,fromT:s.melt.t,toT:s.startT}
+    ];
+  }
+  var x=X0;
+  list.forEach(function(sg){
+    var x1=x,x2=x+sg.e/MAXE*PW,y1=ty(sg.kind==="plat"?sg.atT:sg.fromT),y2=ty(sg.kind==="plat"?sg.atT:sg.toT);
+    sg.x1=x1;sg.y1=y1;sg.x2=x2;sg.y2=y2;sg.mx=(x1+x2)/2;sg.my=(y1+y2)/2;x=x2;
+  });
+  return list;
+}
+
+var cssCache={};
+function cssv(n){ if(!(n in cssCache)) cssCache[n]=getComputedStyle(document.documentElement).getPropertyValue(n).trim(); return cssCache[n]; }
+function svgEl(t,a){ var e=document.createElementNS("http://www.w3.org/2000/svg",t); for(var k in a) e.setAttribute(k,a[k]); return e; }
+
+var STORE={heat:{},cool:{}};   // STORE[mode][sub-seg] = [values]
+var MODE="heat";
+var circles=[];                // current-mode circle records
+
+function renderChart(){
+  SUBS.forEach(function(s){ s._segs=segsFor(MODE,s); });
+  var lg=document.getElementById("curvelegend"); lg.innerHTML="";
+  SUBS.forEach(function(s){ var sp=document.createElement("span"); var sw=document.createElement("span"); sw.className="sw"; sw.style.background=cssv(s.cvar); sp.appendChild(sw); sp.appendChild(document.createTextNode(s.name)); sp.style.color=cssv(s.cvar); lg.appendChild(sp); });
+  var svg=svgEl("svg",{viewBox:"0 0 "+VBW+" "+VBH,"class":"curve",role:"img","aria-label":(MODE==="heat"?"Heating":"Cooling")+" curves"});
+  var axisCol=cssv("--line"), muted=cssv("--muted");
+  [-100,0,100,200,300].forEach(function(T){ var y=ty(T);
+    svg.appendChild(svgEl("line",{x1:X0,y1:y,x2:X0+PW,y2:y,stroke:axisCol,"stroke-width":1,"stroke-dasharray":"3 6",opacity:.6}));
+    var l=svgEl("text",{x:X0-10,y:y+5,"text-anchor":"end","font-size":15,"font-family":"var(--mono)",fill:muted}); l.textContent=T+"°"; svg.appendChild(l);
+  });
+  svg.appendChild(svgEl("line",{x1:X0,y1:Y0,x2:X0,y2:Y0+PH,stroke:muted,"stroke-width":1.5}));
+  svg.appendChild(svgEl("line",{x1:X0,y1:Y0+PH,x2:X0+PW,y2:Y0+PH,stroke:muted,"stroke-width":1.5}));
+  var ax=svgEl("text",{x:X0+PW/2,y:Y0+PH+44,"text-anchor":"middle","font-size":16,"font-weight":600,"font-family":"var(--mono)",fill:muted}); ax.textContent=(MODE==="heat"?"Thermal energy added →":"Thermal energy removed →"); svg.appendChild(ax);
+  var ay=svgEl("text",{x:20,y:Y0+PH/2,"text-anchor":"middle","font-size":16,"font-weight":600,"font-family":"var(--mono)",fill:muted,transform:"rotate(-90 20 "+(Y0+PH/2)+")"}); ay.textContent="Temperature (°C)"; svg.appendChild(ay);
+  SUBS.forEach(function(s){ var col=cssv(s.cvar);
+    var pts=[[s._segs[0].x1,s._segs[0].y1]]; s._segs.forEach(function(sg){ pts.push([sg.x2,sg.y2]); });
+    svg.appendChild(svgEl("polyline",{points:pts.map(function(p){return p[0].toFixed(1)+","+p[1].toFixed(1);}).join(" "),fill:"none",stroke:col,"stroke-width":4.5,"stroke-linejoin":"round","stroke-linecap":"round"}));
+    s._segs.forEach(function(sg,i){
+      svg.appendChild(svgEl("circle",{cx:sg.mx,cy:sg.my,r:14,fill:col,stroke:cssv("--panel"),"stroke-width":2.5}));
+      var t=svgEl("text",{x:sg.mx,y:sg.my+5,"text-anchor":"middle","font-size":14,"font-weight":600,"font-family":"var(--mono)",fill:"#fff","pointer-events":"none"}); t.textContent=(i+1); svg.appendChild(t);
+    });
+  });
+  document.getElementById("svgwrap").innerHTML=""; document.getElementById("svgwrap").appendChild(svg);
+
+  var ov=document.getElementById("overlay"); ov.innerHTML=""; circles=[];
+  SUBS.forEach(function(s){ var dir=DIR[s.key];
+    s._segs.forEach(function(sg,i){
+      var rec={sub:s.key,seg:i,correct:sg.what.concat(sg.en),mx:sg.mx,my:sg.my,dir:dir};
+      var pad=document.createElement("div"); pad.className="droppad";
+      pad.style.left=(sg.mx/VBW*100)+"%"; pad.style.top=(sg.my/VBH*100)+"%";
+      var dock=document.createElement("div"); dock.className="dock "+(dir<0?"up":"down");
+      dock.style.left=(sg.mx/VBW*100)+"%"; dock.style.top=((sg.my+dir*16)/VBH*100)+"%";
+      rec.dock=dock;
+      [pad,dock].forEach(function(el){
+        el.addEventListener("dragover",function(ev){ ev.preventDefault(); pad.classList.add("over"); });
+        el.addEventListener("dragleave",function(){ pad.classList.remove("over"); });
+        el.addEventListener("drop",function(ev){ ev.preventDefault(); pad.classList.remove("over"); var v=ev.dataTransfer.getData("text/plain"); if(v) addLabel(rec,v); });
+      });
+      ov.appendChild(pad); ov.appendChild(dock);
+      circles.push(rec);
+    });
+  });
+  circles.forEach(function(rec){ renderDock(rec,false); });
+}
+
+function keyOf(rec){ return rec.sub+"-"+rec.seg; }
+function addLabel(rec,v){
+  var arr=STORE[MODE][keyOf(rec)]||(STORE[MODE][keyOf(rec)]=[]);
+  if(arr.indexOf(v)<0) arr.push(v);
+  renderDock(rec,false);
+}
+function removeLabel(rec,v){
+  var arr=STORE[MODE][keyOf(rec)]; if(!arr) return;
+  var k=arr.indexOf(v); if(k>=0) arr.splice(k,1);
+  renderDock(rec,false);
+}
+function renderDock(rec,checked){
+  var dock=rec.dock; dock.innerHTML="";
+  var arr=STORE[MODE][keyOf(rec)]||[];
+  arr.forEach(function(v){
+    var c=document.createElement("div"); c.className="minichip "+mcat(v); c.textContent=SHORT[v]; c.title=fullText(v)+" (click to remove)";
+    if(checked){ c.classList.add(rec.correct.indexOf(v)>=0?"ok":"bad"); }
+    c.addEventListener("click",function(){ removeLabel(rec,v); });
+    dock.appendChild(c);
+  });
+}
+
+function makeBankChip(v){ var c=document.createElement("span"); c.className="chip "+cat(v); c.textContent=fullText(v); c.setAttribute("draggable","true"); c.setAttribute("role","button"); c.setAttribute("tabindex","0");
+  c.addEventListener("dragstart",function(ev){ ev.dataTransfer.setData("text/plain",v); ev.dataTransfer.effectAllowed="copy"; }); return c; }
+function buildBank(){
+  ["solid","liquid","gas"].forEach(function(v){ document.getElementById("bank-states").appendChild(makeBankChip(v)); });
+  ["melting","boiling","freezing","condensing"].forEach(function(v){ document.getElementById("bank-changes").appendChild(makeBankChip(v)); });
+  ["raise","lower","most","medium","least"].forEach(function(v){ document.getElementById("bank-energy").appendChild(makeBankChip(v)); });
+}
+
+function setMode(m){
+  MODE=m;
+  document.getElementById("tabHeat").classList.toggle("active",m==="heat");
+  document.getElementById("tabCool").classList.toggle("active",m==="cool");
+  document.getElementById("tabHeat").setAttribute("aria-selected",m==="heat");
+  document.getElementById("tabCool").setAttribute("aria-selected",m==="cool");
+  document.getElementById("chartTitle").textContent=(m==="heat"?"Heating Curves (thermal energy added)":"Freezing Curves (thermal energy removed)");
+  document.getElementById("intro").innerHTML = m==="heat"
+    ? "The three substances are <b>heated</b> from cold, gaining thermal energy at a steady rate. <b>Rising</b> = warming up. <b>Flat</b> = changing state. The <b>longer the flat part</b>, the more thermal energy that change needs."
+    : "The three substances are <b>cooled</b> from hot, losing thermal energy at a steady rate. <b>Falling</b> = cooling down. <b>Flat</b> = changing state. The <b>longer the flat part</b>, the more thermal energy that change releases.";
+  document.getElementById("scorePill").hidden=true;
+  renderChart();
+}
+
+function checkAll(){
+  var total=circles.length*2, correct=0;
+  circles.forEach(function(rec){ var arr=STORE[MODE][keyOf(rec)]||[]; arr.forEach(function(v){ if(rec.correct.indexOf(v)>=0) correct++; }); renderDock(rec,true); });
+  var pill=document.getElementById("scorePill"); pill.hidden=false; pill.textContent=(MODE==="heat"?"Heating":"Freezing")+" score: "+correct+" / "+total;
+}
+function resetAll(){ STORE[MODE]={}; circles.forEach(function(rec){ renderDock(rec,false); }); document.getElementById("scorePill").hidden=true; }
+
+function reportMode(mode){
+  var lines=["== "+(mode==="heat"?"HEATING":"FREEZING")+" GRAPH =="]; var total=0,correct=0;
+  SUBS.forEach(function(s){ var segs=segsFor(mode,s); lines.push(s.name+":");
+    segs.forEach(function(sg,i){ var corr=sg.what.concat(sg.en); var arr=STORE[mode][s.key+"-"+i]||[]; total+=2;
+      var txt=arr.map(function(v){ var ok=corr.indexOf(v)>=0; if(ok)correct++; return SHORT[v]+"["+(ok?"ok":"check")+"]"; }).join(", ")||"(empty)";
+      lines.push("  "+(i+1)+" "+(sg.kind==="plat"?"flat":"rising")+": "+txt);
+    });
+  });
+  lines.push("Subtotal: "+correct+" / "+total); return lines.join("\n");
+}
+function buildReport(){
+  return "Heating & Freezing Curves — Lesson 2.2\nDate: "+new Date().toLocaleDateString()+"\n\n"+reportMode("heat")+"\n\n"+reportMode("cool"); }
+function copyResults(){ var t=buildReport(); function done(){ var el=document.getElementById("toast"); el.hidden=false; setTimeout(function(){el.hidden=true;},2600); }
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done,function(){fb(t,done);}); else fb(t,done); }
+function fb(t,cb){ var ta=document.createElement("textarea"); ta.value=t; ta.style.position="fixed"; ta.style.opacity="0"; document.body.appendChild(ta); ta.select(); try{document.execCommand("copy");}catch(e){} document.body.removeChild(ta); cb&&cb(); }
+function downloadResults(){ var t=buildReport(); var n="heating_freezing_curves";
+  var b=new Blob([t],{type:"text/plain"}),u=URL.createObjectURL(b),a=document.createElement("a"); a.href=u; a.download=n+"_curves.txt"; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(function(){URL.revokeObjectURL(u);},1000); }
+function toggleTheme(){ var cur=document.documentElement.getAttribute("data-theme"),mq=window.matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.setAttribute("data-theme", cur?(cur==="dark"?"light":"dark"):(mq?"light":"dark")); cssCache={}; renderChart(); }
+
+buildBank();
+document.getElementById("tabHeat").addEventListener("click",function(){ setMode("heat"); });
+document.getElementById("tabCool").addEventListener("click",function(){ setMode("cool"); });
+document.getElementById("checkBtn").addEventListener("click",checkAll);
+document.getElementById("resetBtn").addEventListener("click",resetAll);
+document.getElementById("themeBtn").addEventListener("click",toggleTheme);
+setMode("heat");
+
+</script>
+</body>
+</html>
