@@ -93,6 +93,13 @@ svg.curve{display:block;width:100%;height:auto}
 .minichip.mc-energy{color:var(--energy);border-color:var(--energy)}
 .minichip.ok{border-color:var(--good);background:var(--good-bg);color:var(--good)}
 .minichip.bad{border-color:var(--bad);background:var(--bad-bg);color:var(--bad)}
+.minichip.locked{cursor:default;opacity:.95;box-shadow:none}
+.stagebar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:var(--radius);padding:10px 16px;margin-bottom:14px;box-shadow:var(--shadow)}
+.stagebar .st{font-weight:700;font-size:14px;white-space:nowrap}
+.stagebar .sd{font-size:13px;color:var(--muted)}
+.stagebar .spacer{flex:1}
+.stagedone{color:var(--good);font-weight:700;font-size:13px}
+.banksec.hide{display:none}
 
 .chip{font-size:12.5px;font-weight:600;line-height:1.25;border-radius:8px;padding:5px 9px;border:1px solid;cursor:grab;user-select:none;text-align:center;display:inline-block}
 .chip:active{cursor:grabbing}
@@ -141,6 +148,15 @@ svg.curve{display:block;width:100%;height:auto}
 
   <div class="intro" id="intro"></div>
 
+  <div class="stagebar">
+    <span class="st" id="stageText"></span>
+    <span class="sd" id="stageDesc"></span>
+    <span class="spacer"></span>
+    <span class="stagedone" id="stageDone" hidden></span>
+    <button class="btn ghost" id="backBtn" hidden>&larr; Back to states</button>
+    <button class="btn primary" id="nextBtn" hidden>Next: add thermal energy &rarr;</button>
+  </div>
+
   <div class="cols">
     <main>
       <div class="chartpanel">
@@ -153,17 +169,23 @@ svg.curve{display:block;width:100%;height:auto}
           </div>
         </div>
       </div>
-      <div style="font-size:13px;color:var(--muted);line-height:1.5;margin-top:4px">Drag a label from the bank onto a <b>numbered circle</b> on the graph. Each circle needs two labels: <b>what is happening</b> (a state or a state change) and <b>what the thermal energy is doing</b>. The dropped labels appear beside the circle. Click a label to remove it. Labels can be used more than once.</div>
+      <div style="font-size:13px;color:var(--muted);line-height:1.5;margin-top:4px">Drag a label from the bank onto a <b>numbered circle</b> on the graph. The dropped label appears beside the circle. Click a label to remove it. Labels can be used more than once.</div>
     </main>
     <aside>
       <div class="bank">
-        <p class="hint">Drag a label onto a box.</p>
-        <h3>States</h3>
-        <div class="bankgroup" id="bank-states"></div>
-        <h3>State Changes</h3>
-        <div class="bankgroup" id="bank-changes"></div>
-        <h3>Thermal Energy</h3>
-        <div class="bankgroup col" id="bank-energy"></div>
+        <p class="hint" id="bankHint">Drag a label onto a numbered circle.</p>
+        <div class="banksec" id="sec-states">
+          <h3>States</h3>
+          <div class="bankgroup" id="bank-states"></div>
+        </div>
+        <div class="banksec" id="sec-changes">
+          <h3>State Changes</h3>
+          <div class="bankgroup" id="bank-changes"></div>
+        </div>
+        <div class="banksec" id="sec-energy">
+          <h3>Thermal Energy</h3>
+          <div class="bankgroup col" id="bank-energy"></div>
+        </div>
       </div>
     </aside>
   </div>
@@ -173,7 +195,7 @@ svg.curve{display:block;width:100%;height:auto}
 "use strict";
 
 var SLOPE={solid:1.0,liquid:1.3,gas:0.7}, PLAT={least:1.0,medium:1.9,most:3.0};
-var MAXE=7.0, MINT=-130, MAXT=360;
+var MAXE=7.0, MINT=-130, MAXT=410;
 var SUBS=[
   {key:"water",name:"Water",cvar:"--water",startT:-30,melt:{t:0,e:"medium"},boil:{t:100,e:"medium"},gasEnd:140},
   {key:"alcohol",name:"Rubbing Alcohol",cvar:"--alcohol",startT:-120,melt:{t:-90,e:"most"},boil:{t:80,e:"least"},gasEnd:120},
@@ -223,9 +245,12 @@ var cssCache={};
 function cssv(n){ if(!(n in cssCache)) cssCache[n]=getComputedStyle(document.documentElement).getPropertyValue(n).trim(); return cssCache[n]; }
 function svgEl(t,a){ var e=document.createElementNS("http://www.w3.org/2000/svg",t); for(var k in a) e.setAttribute(k,a[k]); return e; }
 
-var STORE={heat:{},cool:{}};   // STORE[mode][sub-seg] = [values]
+var STORE={heat:{},cool:{}};   // STORE[mode][sub-seg] = {what:[],en:[]}
+var STAGE={heat:1,cool:1};     // 1 = states/changes, 2 = thermal energy
 var MODE="heat";
 var circles=[];                // current-mode circle records
+function isEnergy(v){ return v in FULL; }
+function entry(key){ var d=STORE[MODE][key]; if(!d){ d={what:[],en:[]}; STORE[MODE][key]=d; } return d; }
 
 function renderChart(){
   SUBS.forEach(function(s){ s._segs=segsFor(MODE,s); });
@@ -233,7 +258,7 @@ function renderChart(){
   SUBS.forEach(function(s){ var sp=document.createElement("span"); var sw=document.createElement("span"); sw.className="sw"; sw.style.background=cssv(s.cvar); sp.appendChild(sw); sp.appendChild(document.createTextNode(s.name)); sp.style.color=cssv(s.cvar); lg.appendChild(sp); });
   var svg=svgEl("svg",{viewBox:"0 0 "+VBW+" "+VBH,"class":"curve",role:"img","aria-label":(MODE==="heat"?"Heating":"Cooling")+" curves"});
   var axisCol=cssv("--line"), muted=cssv("--muted");
-  [-100,0,100,200,300].forEach(function(T){ var y=ty(T);
+  [-100,0,100,200,300,400].forEach(function(T){ var y=ty(T);
     svg.appendChild(svgEl("line",{x1:X0,y1:y,x2:X0+PW,y2:y,stroke:axisCol,"stroke-width":1,"stroke-dasharray":"3 6",opacity:.6}));
     var l=svgEl("text",{x:X0-10,y:y+5,"text-anchor":"end","font-size":15,"font-family":"var(--mono)",fill:muted}); l.textContent=T+"°"; svg.appendChild(l);
   });
@@ -254,7 +279,7 @@ function renderChart(){
   var ov=document.getElementById("overlay"); ov.innerHTML=""; circles=[];
   SUBS.forEach(function(s){ var dir=DIR[s.key];
     s._segs.forEach(function(sg,i){
-      var rec={sub:s.key,seg:i,correct:sg.what.concat(sg.en),mx:sg.mx,my:sg.my,dir:dir};
+      var rec={sub:s.key,seg:i,what:sg.what,en:sg.en,kind:sg.kind,mx:sg.mx,my:sg.my,dir:dir};
       var pad=document.createElement("div"); pad.className="droppad";
       pad.style.left=(sg.mx/VBW*100)+"%"; pad.style.top=(sg.my/VBH*100)+"%";
       var dock=document.createElement("div"); dock.className="dock "+(dir<0?"up":"down");
@@ -274,24 +299,35 @@ function renderChart(){
 
 function keyOf(rec){ return rec.sub+"-"+rec.seg; }
 function addLabel(rec,v){
-  var arr=STORE[MODE][keyOf(rec)]||(STORE[MODE][keyOf(rec)]=[]);
-  if(arr.indexOf(v)<0) arr.push(v);
+  var d=entry(keyOf(rec)), st=STAGE[MODE];
+  if(isEnergy(v)){ if(st!==2) return; if(d.en.indexOf(v)<0) d.en.push(v); }
+  else { if(st!==1) return; if(d.what.indexOf(v)<0) d.what.push(v); }
   renderDock(rec,false);
 }
 function removeLabel(rec,v){
-  var arr=STORE[MODE][keyOf(rec)]; if(!arr) return;
-  var k=arr.indexOf(v); if(k>=0) arr.splice(k,1);
+  var d=STORE[MODE][keyOf(rec)]; if(!d) return;
+  var arr=isEnergy(v)?d.en:d.what, k=arr.indexOf(v); if(k>=0) arr.splice(k,1);
   renderDock(rec,false);
 }
 function renderDock(rec,checked){
-  var dock=rec.dock; dock.innerHTML="";
-  var arr=STORE[MODE][keyOf(rec)]||[];
+  var dock=rec.dock; dock.innerHTML=""; dock._rec=rec;
+  var d=entry(keyOf(rec)), st=STAGE[MODE];
+  // stage 2: show the locked state/change label(s) first
+  if(st===2){ d.what.forEach(function(v){ dock.appendChild(mk(rec,v,{locked:true})); }); }
+  // editable labels for the current stage
+  var arr = st===1 ? d.what : d.en, correct = st===1 ? rec.what : rec.en;
   arr.forEach(function(v){
-    var c=document.createElement("div"); c.className="minichip "+mcat(v); c.textContent=SHORT[v]; c.title=fullText(v)+" (click to remove)";
-    if(checked){ c.classList.add(rec.correct.indexOf(v)>=0?"ok":"bad"); }
-    c.addEventListener("click",function(){ removeLabel(rec,v); });
-    dock.appendChild(c);
+    var o={}; if(checked) o.mark=(correct.indexOf(v)>=0?"ok":"bad");
+    dock.appendChild(mk(rec,v,o));
   });
+}
+function mk(rec,v,opts){
+  opts=opts||{};
+  var c=document.createElement("div"); c.className="minichip "+mcat(v)+(opts.locked?" locked":"");
+  c.textContent=SHORT[v]; c.title=fullText(v)+(opts.locked?" (given)":" (click to remove)");
+  if(opts.mark) c.classList.add(opts.mark);
+  if(!opts.locked) c.addEventListener("click",function(){ removeLabel(rec,v); });
+  return c;
 }
 
 function makeBankChip(v){ var c=document.createElement("span"); c.className="chip "+cat(v); c.textContent=fullText(v); c.setAttribute("draggable","true"); c.setAttribute("role","button"); c.setAttribute("tabindex","0");
@@ -300,6 +336,23 @@ function buildBank(){
   ["solid","liquid","gas"].forEach(function(v){ document.getElementById("bank-states").appendChild(makeBankChip(v)); });
   ["melting","boiling","freezing","condensing"].forEach(function(v){ document.getElementById("bank-changes").appendChild(makeBankChip(v)); });
   ["raise","lower","most","medium","least"].forEach(function(v){ document.getElementById("bank-energy").appendChild(makeBankChip(v)); });
+}
+
+function applyStageUI(){
+  var st=STAGE[MODE], gname=(MODE==="heat"?"heating":"freezing");
+  document.getElementById("sec-states").classList.toggle("hide",st!==1);
+  document.getElementById("sec-changes").classList.toggle("hide",st!==1);
+  document.getElementById("sec-energy").classList.toggle("hide",st!==2);
+  document.getElementById("stageText").textContent="Stage "+st+" of 2";
+  document.getElementById("stageDesc").textContent = st===1
+    ? "Label every circle on the "+gname+" graph with its state or state change."
+    : "The states are locked in. Now add the thermal-energy label to every circle.";
+  document.getElementById("bankHint").textContent = st===1
+    ? "Drag a state or state change onto each numbered circle."
+    : "Drag a thermal-energy label onto each numbered circle.";
+  document.getElementById("backBtn").hidden = (st!==2);
+  document.getElementById("nextBtn").hidden = true;
+  document.getElementById("stageDone").hidden = true;
 }
 
 function setMode(m){
@@ -314,40 +367,60 @@ function setMode(m){
     : "The three substances are <b>cooled</b> from hot, losing thermal energy at a steady rate. <b>Falling</b> = cooling down. <b>Flat</b> = changing state. The <b>longer the flat part</b>, the more thermal energy that change releases.";
   document.getElementById("scorePill").hidden=true;
   renderChart();
+  applyStageUI();
 }
 
-function checkAll(){
-  var total=circles.length*2, correct=0;
-  circles.forEach(function(rec){ var arr=STORE[MODE][keyOf(rec)]||[]; arr.forEach(function(v){ if(rec.correct.indexOf(v)>=0) correct++; }); renderDock(rec,true); });
-  var pill=document.getElementById("scorePill"); pill.hidden=false; pill.textContent=(MODE==="heat"?"Heating":"Freezing")+" score: "+correct+" / "+total;
-}
-function resetAll(){ STORE[MODE]={}; circles.forEach(function(rec){ renderDock(rec,false); }); document.getElementById("scorePill").hidden=true; }
-
-function reportMode(mode){
-  var lines=["== "+(mode==="heat"?"HEATING":"FREEZING")+" GRAPH =="]; var total=0,correct=0;
-  SUBS.forEach(function(s){ var segs=segsFor(mode,s); lines.push(s.name+":");
-    segs.forEach(function(sg,i){ var corr=sg.what.concat(sg.en); var arr=STORE[mode][s.key+"-"+i]||[]; total+=2;
-      var txt=arr.map(function(v){ var ok=corr.indexOf(v)>=0; if(ok)correct++; return SHORT[v]+"["+(ok?"ok":"check")+"]"; }).join(", ")||"(empty)";
-      lines.push("  "+(i+1)+" "+(sg.kind==="plat"?"flat":"rising")+": "+txt);
-    });
+function gradeStage(markIt){
+  var st=STAGE[MODE], good=0;
+  circles.forEach(function(rec){
+    var d=entry(keyOf(rec)), arr = st===1 ? d.what : d.en, correct = st===1 ? rec.what : rec.en;
+    var hasCorrect = arr.some(function(v){ return correct.indexOf(v)>=0; });
+    var hasWrong = arr.some(function(v){ return correct.indexOf(v)<0; });
+    if(hasCorrect && !hasWrong) good++;
+    if(markIt) renderDock(rec,true);
   });
-  lines.push("Subtotal: "+correct+" / "+total); return lines.join("\n");
+  return good;
 }
-function buildReport(){
-  return "Heating & Freezing Curves — Lesson 2.2\nDate: "+new Date().toLocaleDateString()+"\n\n"+reportMode("heat")+"\n\n"+reportMode("cool"); }
-function copyResults(){ var t=buildReport(); function done(){ var el=document.getElementById("toast"); el.hidden=false; setTimeout(function(){el.hidden=true;},2600); }
-  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done,function(){fb(t,done);}); else fb(t,done); }
-function fb(t,cb){ var ta=document.createElement("textarea"); ta.value=t; ta.style.position="fixed"; ta.style.opacity="0"; document.body.appendChild(ta); ta.select(); try{document.execCommand("copy");}catch(e){} document.body.removeChild(ta); cb&&cb(); }
-function downloadResults(){ var t=buildReport(); var n="heating_freezing_curves";
-  var b=new Blob([t],{type:"text/plain"}),u=URL.createObjectURL(b),a=document.createElement("a"); a.href=u; a.download=n+"_curves.txt"; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(function(){URL.revokeObjectURL(u);},1000); }
+function checkAll(){
+  var st=STAGE[MODE], total=circles.length, good=gradeStage(true);
+  var pill=document.getElementById("scorePill"); pill.hidden=false;
+  pill.textContent=(MODE==="heat"?"Heating":"Freezing")+" · Stage "+st+": "+good+" / "+total;
+  var done=document.getElementById("stageDone"), next=document.getElementById("nextBtn");
+  if(good===total){
+    if(st===1){ done.hidden=false; done.textContent="All "+total+" correct!"; next.hidden=false; }
+    else { done.hidden=false; done.textContent="Complete! All "+total+" thermal-energy labels correct."; next.hidden=true; }
+  } else { done.hidden=true; if(st===1) next.hidden=true; }
+}
+function advanceStage(){
+  // lock each circle's correct state/change label, then open the energy stage
+  circles.forEach(function(rec){ var d=entry(keyOf(rec)); d.what=[rec.what[0]]; });
+  STAGE[MODE]=2;
+  document.getElementById("scorePill").hidden=true;
+  applyStageUI();
+  circles.forEach(function(rec){ renderDock(rec,false); });
+}
+function backStage(){
+  STAGE[MODE]=1;
+  document.getElementById("scorePill").hidden=true;
+  applyStageUI();
+  circles.forEach(function(rec){ renderDock(rec,false); });
+}
+function resetAll(){
+  STORE[MODE]={}; STAGE[MODE]=1;
+  applyStageUI();
+  circles.forEach(function(rec){ renderDock(rec,false); });
+  document.getElementById("scorePill").hidden=true;
+}
 function toggleTheme(){ var cur=document.documentElement.getAttribute("data-theme"),mq=window.matchMedia("(prefers-color-scheme: dark)").matches;
-  document.documentElement.setAttribute("data-theme", cur?(cur==="dark"?"light":"dark"):(mq?"light":"dark")); cssCache={}; renderChart(); }
+  document.documentElement.setAttribute("data-theme", cur?(cur==="dark"?"light":"dark"):(mq?"light":"dark")); cssCache={}; renderChart(); circles.forEach(function(rec){ renderDock(rec,false); }); }
 
 buildBank();
 document.getElementById("tabHeat").addEventListener("click",function(){ setMode("heat"); });
 document.getElementById("tabCool").addEventListener("click",function(){ setMode("cool"); });
 document.getElementById("checkBtn").addEventListener("click",checkAll);
 document.getElementById("resetBtn").addEventListener("click",resetAll);
+document.getElementById("nextBtn").addEventListener("click",advanceStage);
+document.getElementById("backBtn").addEventListener("click",backStage);
 document.getElementById("themeBtn").addEventListener("click",toggleTheme);
 setMode("heat");
 
