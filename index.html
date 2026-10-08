@@ -194,13 +194,28 @@ svg.curve{display:block;width:100%;height:auto}
 <script>
 "use strict";
 
-var SLOPE={solid:1.0,liquid:1.3,gas:0.7}, PLAT={least:1.0,medium:1.9,most:3.0};
-var MAXE=7.0, MINT=-130, MAXT=410;
+// Idealized model (1b): "energy to change state" grows with the transition
+// temperature, and heating is at a steady rate. Higher melting/boiling temp =>
+// longer climb to reach it AND a longer plateau to break free.
 var SUBS=[
-  {key:"water",name:"Water",cvar:"--water",startT:-30,melt:{t:0,e:"medium"},boil:{t:100,e:"medium"},gasEnd:140},
-  {key:"alcohol",name:"Rubbing Alcohol",cvar:"--alcohol",startT:-120,melt:{t:-90,e:"most"},boil:{t:80,e:"least"},gasEnd:120},
-  {key:"oil",name:"Vegetable Oil",cvar:"--oil",startT:-50,melt:{t:-20,e:"least"},boil:{t:300,e:"most"},gasEnd:340}
+  {key:"water",  name:"Water",           cvar:"--water",  dash:"solid",startT:-30, meltT:0,  boilT:100,gasEnd:140},
+  {key:"alcohol",name:"Rubbing Alcohol", cvar:"--alcohol",dash:"dash", startT:-120,meltT:-90,boilT:80, gasEnd:120},
+  {key:"oil",    name:"Vegetable Oil",   cvar:"--oil",    dash:"dot",  startT:-50, meltT:-20,boilT:300,gasEnd:340}
 ];
+var MINT=-130, MAXT=410;
+var SRATE=1.0, PBASE=30, PK=0.30, PREF=-130, MELTBONUS=45, GASGR=0.45, GASMIN=60;
+function plateauW(T){ return PBASE+PK*(T-PREF); }
+function coreE(s){ return {solid:SRATE*(s.meltT-s.startT), melt:plateauW(s.meltT)+MELTBONUS, liquid:SRATE*(s.boilT-s.meltT), boil:plateauW(s.boilT)}; }
+function preGas(s){ var e=coreE(s); return e.solid+e.melt+e.liquid+e.boil; }
+var X_END=Math.max(preGas(SUBS[0]),preGas(SUBS[1]),preGas(SUBS[2]))+GASMIN;
+function energiesOf(s){ var e=coreE(s); e.gas=X_END-preGas(s); return e; }
+function gasEndTemp(s){ return s.boilT+GASGR*(X_END-preGas(s)); }
+function totalOf(s){ var e=energiesOf(s); return e.solid+e.melt+e.liquid+e.boil+e.gas; }
+function rankKeys(vals){ var o=Object.keys(vals).sort(function(a,b){return vals[b]-vals[a];}); var t={}; t[o[0]]="most"; t[o[1]]="medium"; t[o[2]]="least"; return t; }
+var SUBMAP={}; SUBS.forEach(function(s){ SUBMAP[s.key]=s; });
+var meltRank=rankKeys({water:energiesOf(SUBMAP.water).melt,alcohol:energiesOf(SUBMAP.alcohol).melt,oil:energiesOf(SUBMAP.oil).melt});
+var boilRank=rankKeys({water:energiesOf(SUBMAP.water).boil,alcohol:energiesOf(SUBMAP.alcohol).boil,oil:energiesOf(SUBMAP.oil).boil});
+var MAXE=Math.max(totalOf(SUBS[0]),totalOf(SUBS[1]),totalOf(SUBS[2]));
 var FULL={raise:"Thermal energy added raises the temperature",lower:"Thermal energy removed lowers the temperature",
   most:"Most thermal energy needed to change state",medium:"Medium thermal energy needed to change state",least:"Least thermal energy needed to change state"};
 var SHORT={solid:"Solid",liquid:"Liquid",gas:"Gas",melting:"Melting",boiling:"Boiling",evaporating:"Evaporating",freezing:"Freezing",condensing:"Condensing",
@@ -210,33 +225,40 @@ function cat(v){ if(v==="solid"||v==="liquid"||v==="gas") return "c-"+v; if(v in
 function mcat(v){ if(v==="solid"||v==="liquid"||v==="gas") return "mc-"+v; if(v in FULL) return "mc-energy"; return "mc-change"; }
 
 var VBW=980, VBH=600, X0=72, Y0=28, PW=864, PH=486;
-function tx(e){ return X0+e/MAXE*PW; }
+// axis break: only water's giant vaporization plateau is compressed. Computed
+// per mode so the break never cuts any other substance's segments.
+// Model 1b needs no axis break — the curves are comparable in width.
+var MAXED=MAXE, XBRK=-999, HASBREAK=false;
+function setBreak(){ MAXED=MAXE; XBRK=-999; HASBREAK=false; }
+function disp(E){ return E; }
+function tx(E){ return X0+disp(E)/MAXED*PW; }
 function ty(T){ return Y0+(MAXT-T)/(MAXT-MINT)*PH; }
 var DIR={water:-1,oil:1,alcohol:1};
+function dashArr(s,w){ return s.dash==="dash" ? (w*3)+" "+(w*2.2) : s.dash==="dot" ? "0.1 "+(w*2.6) : null; }
 
 function segsFor(mode,s){
-  var list;
+  var e=energiesOf(s), list;
   if(mode==="heat"){
     list=[
-      {kind:"slope",what:["solid"],en:["raise"],e:SLOPE.solid,fromT:s.startT,toT:s.melt.t},
-      {kind:"plat",what:["melting"],en:[s.melt.e],e:PLAT[s.melt.e],atT:s.melt.t},
-      {kind:"slope",what:["liquid"],en:["raise"],e:SLOPE.liquid,fromT:s.melt.t,toT:s.boil.t},
-      {kind:"plat",what:["boiling","evaporating"],en:[s.boil.e],e:PLAT[s.boil.e],atT:s.boil.t},
-      {kind:"slope",what:["gas"],en:["raise"],e:SLOPE.gas,fromT:s.boil.t,toT:s.gasEnd}
+      {kind:"slope",what:["solid"],en:["raise"],E:e.solid,fromT:s.startT,toT:s.meltT},
+      {kind:"plat",what:["melting"],en:[meltRank[s.key]],E:e.melt,atT:s.meltT},
+      {kind:"slope",what:["liquid"],en:["raise"],E:e.liquid,fromT:s.meltT,toT:s.boilT},
+      {kind:"plat",what:["boiling"],en:[boilRank[s.key]],E:e.boil,atT:s.boilT},
+      {kind:"slope",what:["gas"],en:["raise"],E:e.gas,fromT:s.boilT,toT:gasEndTemp(s)}
     ];
   } else {
     list=[
-      {kind:"slope",what:["gas"],en:["lower"],e:SLOPE.gas,fromT:s.gasEnd,toT:s.boil.t},
-      {kind:"plat",what:["condensing"],en:[s.boil.e],e:PLAT[s.boil.e],atT:s.boil.t},
-      {kind:"slope",what:["liquid"],en:["lower"],e:SLOPE.liquid,fromT:s.boil.t,toT:s.melt.t},
-      {kind:"plat",what:["freezing"],en:[s.melt.e],e:PLAT[s.melt.e],atT:s.melt.t},
-      {kind:"slope",what:["solid"],en:["lower"],e:SLOPE.solid,fromT:s.melt.t,toT:s.startT}
+      {kind:"slope",what:["gas"],en:["lower"],E:e.gas,fromT:gasEndTemp(s),toT:s.boilT},
+      {kind:"plat",what:["condensing"],en:[boilRank[s.key]],E:e.boil,atT:s.boilT},
+      {kind:"slope",what:["liquid"],en:["lower"],E:e.liquid,fromT:s.boilT,toT:s.meltT},
+      {kind:"plat",what:["freezing"],en:[meltRank[s.key]],E:e.melt,atT:s.meltT},
+      {kind:"slope",what:["solid"],en:["lower"],E:e.solid,fromT:s.meltT,toT:s.startT}
     ];
   }
-  var x=X0;
+  var x=0;
   list.forEach(function(sg){
-    var x1=x,x2=x+sg.e/MAXE*PW,y1=ty(sg.kind==="plat"?sg.atT:sg.fromT),y2=ty(sg.kind==="plat"?sg.atT:sg.toT);
-    sg.x1=x1;sg.y1=y1;sg.x2=x2;sg.y2=y2;sg.mx=(x1+x2)/2;sg.my=(y1+y2)/2;x=x2;
+    var x1=tx(x),x2=tx(x+sg.E),y1=ty(sg.kind==="plat"?sg.atT:sg.fromT),y2=ty(sg.kind==="plat"?sg.atT:sg.toT);
+    sg.x1=x1;sg.y1=y1;sg.x2=x2;sg.y2=y2;sg.mx=(x1+x2)/2;sg.my=(y1+y2)/2;x+=sg.E;
   });
   return list;
 }
@@ -253,9 +275,12 @@ function isEnergy(v){ return v in FULL; }
 function entry(key){ var d=STORE[MODE][key]; if(!d){ d={what:[],en:[]}; STORE[MODE][key]=d; } return d; }
 
 function renderChart(){
+  setBreak();
   SUBS.forEach(function(s){ s._segs=segsFor(MODE,s); });
   var lg=document.getElementById("curvelegend"); lg.innerHTML="";
-  SUBS.forEach(function(s){ var sp=document.createElement("span"); var sw=document.createElement("span"); sw.className="sw"; sw.style.background=cssv(s.cvar); sp.appendChild(sw); sp.appendChild(document.createTextNode(s.name)); sp.style.color=cssv(s.cvar); lg.appendChild(sp); });
+  SUBS.forEach(function(s){ var sp=document.createElement("span"); sp.style.color=cssv(s.cvar);
+    var da=dashArr(s,4); var line='<line x1="1" y1="5" x2="33" y2="5" stroke="'+cssv(s.cvar)+'" stroke-width="4" stroke-linecap="round"'+(da?(' stroke-dasharray="'+da+'"'):'')+'/>';
+    sp.innerHTML='<svg width="34" height="10" style="vertical-align:middle;margin-right:7px">'+line+'</svg>'+s.name; lg.appendChild(sp); });
   var svg=svgEl("svg",{viewBox:"0 0 "+VBW+" "+VBH,"class":"curve",role:"img","aria-label":(MODE==="heat"?"Heating":"Cooling")+" curves"});
   var axisCol=cssv("--line"), muted=cssv("--muted");
   [-100,0,100,200,300,400].forEach(function(T){ var y=ty(T);
@@ -268,12 +293,22 @@ function renderChart(){
   var ay=svgEl("text",{x:20,y:Y0+PH/2,"text-anchor":"middle","font-size":16,"font-weight":600,"font-family":"var(--mono)",fill:muted,transform:"rotate(-90 20 "+(Y0+PH/2)+")"}); ay.textContent="Temperature (°C)"; svg.appendChild(ay);
   SUBS.forEach(function(s){ var col=cssv(s.cvar);
     var pts=[[s._segs[0].x1,s._segs[0].y1]]; s._segs.forEach(function(sg){ pts.push([sg.x2,sg.y2]); });
-    svg.appendChild(svgEl("polyline",{points:pts.map(function(p){return p[0].toFixed(1)+","+p[1].toFixed(1);}).join(" "),fill:"none",stroke:col,"stroke-width":4.5,"stroke-linejoin":"round","stroke-linecap":"round"}));
+    var attrs={points:pts.map(function(p){return p[0].toFixed(1)+","+p[1].toFixed(1);}).join(" "),fill:"none",stroke:col,"stroke-width":4.5,"stroke-linejoin":"round","stroke-linecap":"round"};
+    var da=dashArr(s,4.5); if(da) attrs["stroke-dasharray"]=da;
+    svg.appendChild(svgEl("polyline",attrs));
     s._segs.forEach(function(sg,i){
       svg.appendChild(svgEl("circle",{cx:sg.mx,cy:sg.my,r:14,fill:col,stroke:cssv("--panel"),"stroke-width":2.5}));
       var t=svgEl("text",{x:sg.mx,y:sg.my+5,"text-anchor":"middle","font-size":14,"font-weight":600,"font-family":"var(--mono)",fill:"#fff","pointer-events":"none"}); t.textContent=(i+1); svg.appendChild(t);
     });
   });
+  if(HASBREAK){
+    var panel=cssv("--panel");
+    [Y0+PH, ty(100)].forEach(function(yc){
+      svg.appendChild(svgEl("rect",{x:XBRK-9,y:yc-11,width:18,height:22,fill:panel}));
+      svg.appendChild(svgEl("line",{x1:XBRK-9,y1:yc+8,x2:XBRK,y2:yc-8,stroke:muted,"stroke-width":2.2}));
+      svg.appendChild(svgEl("line",{x1:XBRK,y1:yc+8,x2:XBRK+9,y2:yc-8,stroke:muted,"stroke-width":2.2}));
+    });
+  }
   document.getElementById("svgwrap").innerHTML=""; document.getElementById("svgwrap").appendChild(svg);
 
   var ov=document.getElementById("overlay"); ov.innerHTML=""; circles=[];
