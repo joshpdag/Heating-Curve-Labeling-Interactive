@@ -203,23 +203,32 @@ var SUBS=[
   {key:"oil",    name:"Vegetable Oil",   cvar:"--oil",    dash:"dot",  startT:-50, meltT:-20,boilT:300,gasEnd:340}
 ];
 var MINT=-130, MAXT=410;
-var SRATE=1.0, PBASE=30, PK=0.30, PREF=-130, MELTBONUS=45, GASGR=0.45, GASMIN=60;
-function plateauW(T){ return PBASE+PK*(T-PREF); }
-function coreE(s){ return {solid:SRATE*(s.meltT-s.startT), melt:plateauW(s.meltT)+MELTBONUS, liquid:SRATE*(s.boilT-s.meltT), boil:plateauW(s.boilT)}; }
-function preGas(s){ var e=coreE(s); return e.solid+e.melt+e.liquid+e.boil; }
-var X_END=Math.max(preGas(SUBS[0]),preGas(SUBS[1]),preGas(SUBS[2]))+GASMIN;
-function energiesOf(s){ var e=coreE(s); e.gas=X_END-preGas(s); return e; }
-function gasEndTemp(s){ return s.boilT+GASGR*(X_END-preGas(s)); }
-function totalOf(s){ var e=energiesOf(s); return e.solid+e.melt+e.liquid+e.boil+e.gas; }
+var SRATE=1.0, PBASE=30, PK=0.30, PREF=-130, HIREF=310, MELTBONUS=45, GASGR=0.45, GASMIN=60;
+// HEATING: energy to REACH a change grows with the transition temperature (higher = more).
+// COOLING: energy that must be REMOVED to reach a change grows as the transition
+// temperature drops (lower = more). So the plateau rankings run opposite by mode.
+function plateauW(T){ return PBASE+PK*(T-PREF); }     // heating plateau length
+function coolW(T){ return PBASE+PK*(HIREF-T); }       // cooling plateau length (energy removed to reach)
+function platFor(mode,T){ return (mode==="cool")?coolW(T):plateauW(T); }
+function coreE(s,mode){ return {solid:SRATE*(s.meltT-s.startT), melt:platFor(mode,s.meltT)+MELTBONUS, liquid:SRATE*(s.boilT-s.meltT), boil:platFor(mode,s.boilT)}; }
+function preGas(s,mode){ var e=coreE(s,mode); return e.solid+e.melt+e.liquid+e.boil; }
+function xEnd(mode){ return Math.max(preGas(SUBS[0],mode),preGas(SUBS[1],mode),preGas(SUBS[2],mode))+GASMIN; }
+function energiesOf(s,mode){ var e=coreE(s,mode); e.gas=xEnd(mode)-preGas(s,mode); return e; }
+function gasEndTemp(s,mode){ return s.boilT+GASGR*(xEnd(mode)-preGas(s,mode)); }
 function rankKeys(vals){ var o=Object.keys(vals).sort(function(a,b){return vals[b]-vals[a];}); var t={}; t[o[0]]="most"; t[o[1]]="medium"; t[o[2]]="least"; return t; }
 var SUBMAP={}; SUBS.forEach(function(s){ SUBMAP[s.key]=s; });
-var meltRank=rankKeys({water:energiesOf(SUBMAP.water).melt,alcohol:energiesOf(SUBMAP.alcohol).melt,oil:energiesOf(SUBMAP.oil).melt});
-var boilRank=rankKeys({water:energiesOf(SUBMAP.water).boil,alcohol:energiesOf(SUBMAP.alcohol).boil,oil:energiesOf(SUBMAP.oil).boil});
-var MAXE=Math.max(totalOf(SUBS[0]),totalOf(SUBS[1]),totalOf(SUBS[2]));
+function rankFrom(getter){ return rankKeys({water:getter(SUBMAP.water),alcohol:getter(SUBMAP.alcohol),oil:getter(SUBMAP.oil)}); }
+// heating: by transition temp (higher = more to reach)
+var heatMeltRank=rankFrom(function(s){return plateauW(s.meltT);});
+var heatBoilRank=rankFrom(function(s){return plateauW(s.boilT);});
+// cooling: energy removed to reach the change (lower temp = more removed)
+var coolFreezeRank=rankFrom(function(s){return coolW(s.meltT);});
+var coolCondenseRank=rankFrom(function(s){return coolW(s.boilT);});
+var MAXE=Math.max(xEnd("heat"),xEnd("cool"));
 var FULL={raise:"Thermal energy added raises the temperature",lower:"Thermal energy removed lowers the temperature",
-  most:"Most thermal energy needed to change state",medium:"Medium thermal energy needed to change state",least:"Least thermal energy needed to change state"};
+  most:"Most thermal energy to reach the change of state",medium:"Medium thermal energy to reach the change of state",least:"Least thermal energy to reach the change of state"};
 var SHORT={solid:"Solid",liquid:"Liquid",gas:"Gas",melting:"Melting",boiling:"Boiling",evaporating:"Evaporating",freezing:"Freezing",condensing:"Condensing",
-  raise:"TE raises temp",lower:"TE lowers temp",most:"Most TE for State Change",medium:"Medium TE for State Change",least:"Least TE for State Change"};
+  raise:"TE raises temp",lower:"TE lowers temp",most:"Most TE to reach change",medium:"Medium TE to reach change",least:"Least TE to reach change"};
 function fullText(v){ return (v in FULL)?FULL[v]:(v.charAt(0).toUpperCase()+v.slice(1)); }
 function cat(v){ if(v==="solid"||v==="liquid"||v==="gas") return "c-"+v; if(v in FULL) return "c-energy"; return "c-change"; }
 function mcat(v){ if(v==="solid"||v==="liquid"||v==="gas") return "mc-"+v; if(v in FULL) return "mc-energy"; return "mc-change"; }
@@ -229,7 +238,7 @@ var VBW=980, VBH=600, X0=72, Y0=28, PW=864, PH=486;
 // per mode so the break never cuts any other substance's segments.
 // Model 1b needs no axis break — the curves are comparable in width.
 var MAXED=MAXE, XBRK=-999, HASBREAK=false;
-function setBreak(){ MAXED=MAXE; XBRK=-999; HASBREAK=false; }
+function setBreak(){ MAXED=xEnd(MODE); XBRK=-999; HASBREAK=false; }
 function disp(E){ return E; }
 function tx(E){ return X0+disp(E)/MAXED*PW; }
 function ty(T){ return Y0+(MAXT-T)/(MAXT-MINT)*PH; }
@@ -237,21 +246,21 @@ var DIR={water:-1,oil:1,alcohol:1};
 function dashArr(s,w){ return s.dash==="dash" ? (w*3)+" "+(w*2.2) : s.dash==="dot" ? "0.1 "+(w*2.6) : null; }
 
 function segsFor(mode,s){
-  var e=energiesOf(s), list;
+  var e=energiesOf(s,mode), list;
   if(mode==="heat"){
     list=[
       {kind:"slope",what:["solid"],en:["raise"],E:e.solid,fromT:s.startT,toT:s.meltT},
-      {kind:"plat",what:["melting"],en:[meltRank[s.key]],E:e.melt,atT:s.meltT},
+      {kind:"plat",what:["melting"],en:[heatMeltRank[s.key]],E:e.melt,atT:s.meltT},
       {kind:"slope",what:["liquid"],en:["raise"],E:e.liquid,fromT:s.meltT,toT:s.boilT},
-      {kind:"plat",what:["boiling"],en:[boilRank[s.key]],E:e.boil,atT:s.boilT},
-      {kind:"slope",what:["gas"],en:["raise"],E:e.gas,fromT:s.boilT,toT:gasEndTemp(s)}
+      {kind:"plat",what:["boiling"],en:[heatBoilRank[s.key]],E:e.boil,atT:s.boilT},
+      {kind:"slope",what:["gas"],en:["raise"],E:e.gas,fromT:s.boilT,toT:gasEndTemp(s,mode)}
     ];
   } else {
     list=[
-      {kind:"slope",what:["gas"],en:["lower"],E:e.gas,fromT:gasEndTemp(s),toT:s.boilT},
-      {kind:"plat",what:["condensing"],en:[boilRank[s.key]],E:e.boil,atT:s.boilT},
+      {kind:"slope",what:["gas"],en:["lower"],E:e.gas,fromT:gasEndTemp(s,mode),toT:s.boilT},
+      {kind:"plat",what:["condensing"],en:[coolCondenseRank[s.key]],E:e.boil,atT:s.boilT},
       {kind:"slope",what:["liquid"],en:["lower"],E:e.liquid,fromT:s.boilT,toT:s.meltT},
-      {kind:"plat",what:["freezing"],en:[meltRank[s.key]],E:e.melt,atT:s.meltT},
+      {kind:"plat",what:["freezing"],en:[coolFreezeRank[s.key]],E:e.melt,atT:s.meltT},
       {kind:"slope",what:["solid"],en:["lower"],E:e.solid,fromT:s.meltT,toT:s.startT}
     ];
   }
@@ -398,8 +407,8 @@ function setMode(m){
   document.getElementById("tabCool").setAttribute("aria-selected",m==="cool");
   document.getElementById("chartTitle").textContent=(m==="heat"?"Heating Curves (thermal energy added)":"Freezing Curves (thermal energy removed)");
   document.getElementById("intro").innerHTML = m==="heat"
-    ? "The three substances are <b>heated</b> from cold, gaining thermal energy at a steady rate. <b>Rising</b> = warming up. <b>Flat</b> = changing state. The <b>longer the flat part</b>, the more thermal energy that change needs."
-    : "The three substances are <b>cooled</b> from hot, losing thermal energy at a steady rate. <b>Falling</b> = cooling down. <b>Flat</b> = changing state. The <b>longer the flat part</b>, the more thermal energy that change releases.";
+    ? "The three substances are <b>heated</b> from cold, gaining thermal energy at a steady rate. <b>Rising</b> = warming up. <b>Flat</b> = changing state. The <b>higher the temperature</b> of a change of state, the <b>more thermal energy must be added</b> to reach it — shown by a longer flat part."
+    : "The three substances are <b>cooled</b> from hot, losing thermal energy at a steady rate. <b>Falling</b> = cooling down. <b>Flat</b> = changing state. The <b>lower the temperature</b> of a change of state, the <b>more thermal energy must be removed</b> to reach it — shown by a longer flat part.";
   document.getElementById("scorePill").hidden=true;
   renderChart();
   applyStageUI();
